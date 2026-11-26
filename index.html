@@ -120,7 +120,7 @@ details{margin-top:12px;font-size:13px}summary{cursor:pointer;color:var(--accent
     <canvas id="gl" hidden aria-hidden="true"></canvas>
     <canvas id="mon" hidden aria-label="Monitor de paciente simulado"></canvas>
     <div class="hud">
-      <span class="tag" id="sel-tag">Toca un punto del maniquí</span>
+      <span class="tag" id="sel-tag">Toca una región del cuerpo</span>
       <div class="toggles">
         <div class="seg" role="group" aria-label="Vista">
           <button id="v-man" aria-pressed="true">Maniquí</button>
@@ -367,7 +367,21 @@ const OFI={
 // ---------- utilidades
 const $=id=>document.getElementById(id);
 const card=$('card'), list=$('list'), tag=$('sel-tag'), svg=$('body-svg'), mon=$('mon');
-let mode='explorar', current=null, view='man', casoId='sano', filtro=null;
+let mode='explorar', current=null, view='man', casoId='sano', filtro=null, region=null;
+// Regiones del cuerpo: al tocar el maniquí se muestran solo los puntos de esa región.
+const RNAME={cabeza:'Cabeza y cara',cuello:'Cuello',torax:'Tórax',brazo:'Brazos y manos',mano:'Brazos y manos',abdomen:'Abdomen',pelvis:'Pelvis',pierna:'Piernas'};
+const regOf=f=>f.zona==='mano'?'brazo':f.zona;
+// Un punto se ve si está en la región tocada, en el sistema elegido abajo o es la ficha abierta. En el examen se ven todos.
+const visible=f=>mode==='examen'||(region&&regOf(f)===region)||(filtro&&f.tema===filtro)||(current&&current.id===f.id&&mode==='explorar');
+function regionTag(){const n=FEAT.filter(f=>!f.sinModelo&&visible(f)).length;
+  const pts=n===1?'1 punto':n+' puntos';if(region)return `${RNAME[region]} · ${pts}`;if(filtro)return `${filtro} · ${pts}`;return current?current.nombre:'Toca una región del cuerpo';}
+function setRegion(r){region=r;if(r)filtro=null;if(mode!=='explorar'&&mode!=='examen')setMode('explorar');renderLegend();drawPoints();tag.textContent=regionTag();}
+// Toque sobre el cuerpo (3D o dibujo): la región es la del punto más cercano al toque.
+window.onBodyTap=(sx,sy,onBody,reg)=>{if(mode==='examen')return;
+  if(!onBody){if(region||filtro){region=null;filtro=null;renderLegend();drawPoints();tag.textContent=regionTag();}return;}
+  if(reg){setRegion(region===reg?null:reg);return;}
+  let best=null,bd=1e9;for(const f of FEAT){if(f.sinModelo)continue;const p=pos(f);if(!p.vis)continue;const d=(p.x-sx)**2+(p.y-sy)**2;if(d<bd){bd=d;best=f;}}
+  if(best)setRegion(region===regOf(best)?null:regOf(best));};
 const li=a=>a&&a.length?`<ul>${a.map(([s,t])=>`<li><span class="src ${s}">${s.toUpperCase()}</span>${t}</li>`).join('')}</ul>`:'';
 const sec=(t,h)=>h?`<h3>${t}</h3>${h}`:'';
 function clipHTML(id){const c=CLIPS[id];if(!c)return'';return `<div class="clip"><video id="vid" controls preload="metadata" playsinline poster="${posterSrc(id)}" src="${clipSrc(id)}"></video></div>`;}
@@ -420,14 +434,14 @@ function pos(f){return P3?P3(f):{x:f.x,y:f.y,vis:true};}
 function drawPoints(){
   const old=svg.querySelector('#pts');if(old)old.remove();
   const g=el('g',{id:'pts'});
-  const showLbl=$('t-lbl').checked&&mode!=='examen';
+  const showLbl=($('t-lbl').checked||region||filtro)&&mode!=='examen';
   const feats=FEAT.filter(f=>!f.sinModelo);
   const PP={};feats.forEach(f=>PP[f.id]=pos(f));
   const W3=P3?svg.viewBox.baseVal.width:0;
   const SIDE={};if(P3){const vs=feats.filter(f=>PP[f.id].vis).sort((a,b)=>PP[a.id].x-PP[b.id].x);vs.forEach((f,i)=>SIDE[f.id]=i<Math.ceil(vs.length/2)?'L':'R');}
   if(showLbl){
     for(const side of ['L','R']){
-      const solo=P3&&mode==='explorar'&&current&&!current.sinModelo;const fs=feats.filter(f=>(P3?SIDE[f.id]:f.lado)===side&&PP[f.id].vis&&(!solo||f.id===current.id)).sort((a,b)=>PP[a.id].y-PP[b.id].y);
+      const fs=feats.filter(f=>(P3?SIDE[f.id]:f.lado)===side&&PP[f.id].vis&&visible(f)).sort((a,b)=>PP[a.id].y-PP[b.id].y);
       let prev=-99;const lx=side==='L'?(P3?6:-146):(P3?W3-6:666);
       for(const f of fs){const p=PP[f.id];
         const ly=Math.max(p.y,prev+(P3?22:24));prev=ly;
@@ -436,19 +450,21 @@ function drawPoints(){
         const tx=el('text',{y:ly+4},lg);tx.textContent=f.nombre;
         let w;try{w=tx.getComputedTextLength()+14;}catch(e){w=0}if(!w)w=f.nombre.length*6.6+14;
         const x0=side==='L'?lx:lx-w;rc.setAttribute('x',x0);rc.setAttribute('width',w);tx.setAttribute('x',x0+7);ln.setAttribute('x1',side==='L'?x0+w:x0);
-        if(filtro&&f.tema!==filtro)lg.style.opacity=.2;
       }
     }
   }
-  for(const f of feats){
+  for(const f of feats){if(!visible(f))continue;
     const on=(mode==='explorar'&&current&&current.id===f.id)||(mode==='examen'&&quiz.flash===f.id);
     const p=PP[f.id];
-    const hg=el('g',{class:'hs'+(on?' on':'')+(filtro&&f.tema!==filtro?' dim':'')+(p.vis?'':' back'),'data-id':f.id,tabindex:showLbl?'-1':'0',role:'button','aria-label':mode==='examen'?'Punto del maniquí':f.nombre},g);
+    const hg=el('g',{class:'hs'+(on?' on':'')+(p.vis?'':' back'),'data-id':f.id,tabindex:showLbl?'-1':'0',role:'button','aria-label':mode==='examen'?'Punto del maniquí':f.nombre},g);
     el('circle',{class:'ring',cx:p.x,cy:p.y,r:P3?10:12},hg);
     el('circle',{class:'dotc',cx:p.x,cy:p.y,r:P3?6:7,fill:TCOL[f.tema]},hg);
   }
 }
-svg.addEventListener('click',e=>{const t=e.target.closest('[data-id]');if(!t)return;pick(t.dataset.id);});
+svg.addEventListener('click',e=>{const t=e.target.closest('[data-id]');
+  if(!t){if(P3)return;const r=svg.getBoundingClientRect(),m=svg.getScreenCTM();if(!m)return;const pt=new DOMPoint(e.clientX,e.clientY).matrixTransform(m.inverse());
+    onBodyTap(pt.x,pt.y,!!e.target.closest('.skin,.shorts,.trauma,.feat,.port'));return;}
+  pick(t.dataset.id);});
 svg.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const t=e.target.closest('[data-id]');if(!t)return;e.preventDefault();pick(t.dataset.id);});
 function pick(id){const f=byId(id);
   if(mode==='examen'){answerZona(f);return;}
@@ -459,7 +475,7 @@ function pick(id){const f=byId(id);
 function featCard(f){
   if(!f) return `<div class="eyebrow">Simulación clínica · guía de estudio</div><h1>Simulador HAL S3201</h1>
    <div class="node">Gaumard · paciente adulto inalámbrico · ${FEAT.length} fichas · 15 videos</div>
-   <p>Toca un punto del maniquí o elige una ficha de la lista. Cada ficha dice qué puedes practicar, cómo se hace y dónde lo controla el instructor, con el fragmento del video donde se ve.</p>
+   <p>Toca una región del cuerpo (cabeza, cuello, tórax, brazos, abdomen, pelvis o piernas) o un sistema en los botones de abajo para ver sus puntos. También puedes elegir una ficha de la lista. Cada ficha dice qué puedes practicar, cómo se hace y dónde lo controla el instructor, con el fragmento del video donde se ve.</p>
    <p class="analog"><b>Para ubicarte:</b> HAL es el paciente, la computadora del instructor es su “cerebro” y el monitor es lo que verías en la cabecera de la cama. Lo que hagas sobre el maniquí aparece en la bitácora del instructor.</p>
    <p class="node" id="how3d">Arrastra el maniquí para girarlo; usa la rueda o pellizca para acercar. Modelo 3D generado con Meshy AI a partir del video Hal 1.</p>
    <p>En <b>Casos</b> ves ritmos y signos vitales en un monitor animado. En <b>Examen</b> pones a prueba lo que aprendiste.</p>
@@ -486,12 +502,12 @@ function renderList(){
 list.addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;
   if(b.dataset.caso){setCaso(b.dataset.caso);return;}
   const f=byId(b.dataset.id);select(current&&current.id===f.id?null:f);});
-function select(f){current=f;card.innerHTML=featCard(f);card.scrollTop=0;if(f)addSubs($('vid'),f.id);tag.textContent=f?f.nombre:'Toca un punto del maniquí';
+function select(f){current=f;card.innerHTML=featCard(f);card.scrollTop=0;if(f)addSubs($('vid'),f.id);tag.textContent=f?f.nombre:regionTag();
   if(f&&!f.sinModelo&&view!=='man')setView('man');renderList();drawPoints();if(window.onSelect3D)onSelect3D(f);}
 function renderLegend(){
   $('legendbar').innerHTML=ORDER.filter(t=>t!==T7).map(t=>`<button data-t="${t}" title="${t}" aria-pressed="${filtro===t}"><span class="dot" style="background:${TCOL[t]}"></span>${TSHORT[t]}</button>`).join('');
   $('legendbar').hidden=view!=='man';}
-$('legendbar').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;filtro=filtro===b.dataset.t?null:b.dataset.t;renderLegend();drawPoints();});
+$('legendbar').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;filtro=filtro===b.dataset.t?null:b.dataset.t;if(filtro)region=null;renderLegend();drawPoints();tag.textContent=regionTag();});
 $('t-lbl').onchange=drawPoints;
 
 // ---------- vista
@@ -623,7 +639,7 @@ function setMode(m){mode=m;['explorar','casos','examen'].forEach(x=>$('tab-'+x).
   if(m==='explorar'){card.innerHTML=featCard(current);mstate={...CASOS[casoId]};}
   if(m==='casos'){renderCaso();mstate={...CASOS[casoId]};setView('mon');}
   if(m==='examen'){renderQuiz();}
-  tag.textContent=m==='casos'?'Monitor · '+CASOS[casoId].t:m==='examen'?'Modo examen':(current?current.nombre:'Toca un punto del maniquí');
+  tag.textContent=m==='casos'?'Monitor · '+CASOS[casoId].t:m==='examen'?'Modo examen':regionTag();
   renderList();drawPoints();if(view==='mon')drawNums();if(window.onSelect3D)onSelect3D(m==='explorar'?current:null);}
 ['explorar','casos','examen'].forEach(x=>$('tab-'+x).onclick=()=>setMode(x));
 const _setCaso=setCaso;setCaso=k=>{_setCaso(k);tag.textContent='Monitor · '+CASOS[k].t;if(view==='mon')clearMon();};
@@ -789,6 +805,16 @@ try{
     v.copy(a.p).project(camera);toCam.copy(camera.position).sub(a.p).normalize();
     return {x:(v.x+1)/2*W,y:(1-v.y)/2*Hs,vis:a.n.dot(toCam)>0.12&&v.z<1};};
 
+  // Toque en el cuerpo 3D (sin arrastrar): elige la región; fuera del cuerpo, limpia.
+  {let down=null;const rc=new THREE.Raycaster(),nd=new THREE.Vector2();
+   canvas.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];});
+   canvas.addEventListener('pointerup',e=>{if(!down)return;const mv=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=null;if(mv>6)return;
+     const r=canvas.getBoundingClientRect();nd.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);rc.setFromCamera(nd,camera);
+     const h=rc.intersectObject(model,true)[0];const s=svgEl.getBoundingClientRect();let reg=null;
+     if(h){// punto tocado en el marco del maniquí de pie → coordenadas de la imagen frontal (800×1000)
+       const q=pivot.worldToLocal(h.point.clone()),px=q.x/Wimg*800+400,py=(H/2-q.y)/H*1000,dx=Math.abs(px-400);
+       reg=py<170?'cabeza':py<215&&dx<70?'cuello':dx>=130&&py<620?'brazo':py<350?'torax':py<470?'abdomen':py<600?'pelvis':'pierna';}
+     window.onBodyTap&&onBodyTap(e.clientX-s.left,e.clientY-s.top,!!h,reg);});}
   let dirty=true;
   // ---------- Zoom y animaciones por parte
   // Instrumentos generados con Meshy (incrustados como <script id="prop-*">) y efectos hechos con three.js.
