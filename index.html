@@ -37,7 +37,13 @@ body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);
 @media (max-width:900px){.stage{height:72vh}}
 #body-svg,#gl{position:absolute;inset:56px 0 58px;width:100%;height:calc(100% - 114px)}
 #body-svg{z-index:2}#gl{display:block;touch-action:none;cursor:grab}#gl:active{cursor:grabbing}
-.is3d #body-svg{pointer-events:none}.is3d #body-svg .hs,.is3d #body-svg .lb{pointer-events:auto}
+.is3d #body-svg{pointer-events:none}.is3d #body-svg .hs,.is3d #body-svg .lb,.is3d #body-svg .rg{pointer-events:auto}
+.rg{cursor:pointer}.rg .rgo{fill:var(--panel);stroke:var(--accent);stroke-width:2.5}.rg .rgi{fill:var(--accent)}
+.rg .rgr{fill:none;stroke:var(--accent);stroke-width:1.5;animation:rgp 2.4s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes rgp{0%{transform:scale(.8);opacity:.9}100%{transform:scale(2.1);opacity:0}}
+@media (prefers-reduced-motion:reduce){.rg .rgr{animation:none;opacity:0}}
+.rg rect{fill:var(--panel);stroke:var(--accent)}.rg text{font:600 11px var(--f-body);fill:var(--ink)}
+.rg:hover .rgo,.rg:focus-visible .rgo{fill:var(--accent-soft)}
 .hs.back{opacity:0;pointer-events:none!important}
 .tbtn{font:500 12px/1 var(--f-body);background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:7px 10px;border-radius:6px;cursor:pointer}
 #mon{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--mon-bg)}
@@ -371,6 +377,11 @@ let mode='explorar', current=null, view='man', casoId='sano', filtro=null, regio
 // Regiones del cuerpo: al tocar el maniquí se muestran solo los puntos de esa región.
 const RNAME={cabeza:'Cabeza y cara',cuello:'Cuello',torax:'Tórax',brazo:'Brazos y manos',mano:'Brazos y manos',abdomen:'Abdomen',pelvis:'Pelvis',pierna:'Piernas'};
 const regOf=f=>f.zona==='mano'?'brazo':f.zona;
+// Marcadores de región: se ven al abrir la guía y se ocultan al elegir una región, un sistema o una ficha.
+const REGS=[{id:'reg_cabeza',r:'cabeza',x:260,y:70},{id:'reg_cuello',r:'cuello',x:260,y:150},{id:'reg_torax',r:'torax',x:260,y:250},
+ {id:'reg_brazo_d',r:'brazo',x:108,y:330},{id:'reg_brazo_i',r:'brazo',x:412,y:330},{id:'reg_abdomen',r:'abdomen',x:260,y:380},
+ {id:'reg_pelvis',r:'pelvis',x:260,y:470},{id:'reg_pierna_d',r:'pierna',x:205,y:610},{id:'reg_pierna_i',r:'pierna',x:315,y:610}];
+const RSHORT={cabeza:'Cabeza',cuello:'Cuello',torax:'Tórax',brazo:'Brazo',abdomen:'Abdomen',pelvis:'Pelvis',pierna:'Pierna'};
 // Un punto se ve si está en la región tocada, en el sistema elegido abajo o es la ficha abierta. En el examen se ven todos.
 const visible=f=>mode==='examen'||(region&&regOf(f)===region)||(filtro&&f.tema===filtro)||(current&&current.id===f.id&&mode==='explorar');
 function regionTag(){const n=FEAT.filter(f=>!f.sinModelo&&visible(f)).length;
@@ -453,6 +464,13 @@ function drawPoints(){
       }
     }
   }
+  if(mode==='explorar'&&!region&&!filtro&&!current){
+    for(const rg of REGS){const p=pos(rg);if(p.x<-50)continue; // todos los marcadores miran hacia el frente
+      const gg=el('g',{class:'rg','data-reg':rg.r,tabindex:'0',role:'button','aria-label':'Región: '+RNAME[rg.r]},g);
+      el('circle',{class:'rgr',cx:p.x,cy:p.y,r:9},gg);el('circle',{class:'rgo',cx:p.x,cy:p.y,r:9},gg);el('circle',{class:'rgi',cx:p.x,cy:p.y,r:3.5},gg);
+      const tx=el('text',{x:p.x+18,y:p.y+4},gg);tx.textContent=RSHORT[rg.r];let w;try{w=tx.getComputedTextLength()+12;}catch(e){w=0}if(!w)w=RSHORT[rg.r].length*6.6+12;
+      const rc=el('rect',{x:p.x+12,y:p.y-9,width:w,height:18,rx:9});gg.insertBefore(rc,tx);}
+  }
   for(const f of feats){if(!visible(f))continue;
     const on=(mode==='explorar'&&current&&current.id===f.id)||(mode==='examen'&&quiz.flash===f.id);
     const p=PP[f.id];
@@ -461,11 +479,11 @@ function drawPoints(){
     el('circle',{class:'dotc',cx:p.x,cy:p.y,r:P3?6:7,fill:TCOL[f.tema]},hg);
   }
 }
-svg.addEventListener('click',e=>{const t=e.target.closest('[data-id]');
+svg.addEventListener('click',e=>{const rg=e.target.closest('[data-reg]');if(rg){setRegion(rg.dataset.reg);return;}const t=e.target.closest('[data-id]');
   if(!t){if(P3)return;const r=svg.getBoundingClientRect(),m=svg.getScreenCTM();if(!m)return;const pt=new DOMPoint(e.clientX,e.clientY).matrixTransform(m.inverse());
     onBodyTap(pt.x,pt.y,!!e.target.closest('.skin,.shorts,.trauma,.feat,.port'));return;}
   pick(t.dataset.id);});
-svg.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const t=e.target.closest('[data-id]');if(!t)return;e.preventDefault();pick(t.dataset.id);});
+svg.addEventListener('keydown',e=>{if(e.key!=='Enter'&&e.key!==' ')return;const rg=e.target.closest('[data-reg]');if(rg){e.preventDefault();setRegion(rg.dataset.reg);return;}const t=e.target.closest('[data-id]');if(!t)return;e.preventDefault();pick(t.dataset.id);});
 function pick(id){const f=byId(id);
   if(mode==='examen'){answerZona(f);return;}
   if(mode!=='explorar')setMode('explorar');
@@ -662,7 +680,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 const ANCHOR={ojos:[381,106],bvm:[400,135],intubacion:[400,147],cianosis:[388,148],co2:[414,148],voz:[364,100],
  estridor:[384,185],traqueo:[400,192],ventilador:[426,205],im:[252,190],torax:[335,235],pulmones:[300,300],
  ecg:[458,240],corazon:[440,285],desfib:[490,300],rcp:[400,290],intestino:[415,385],sonda:[395,540],
- convulsiones:[404,62],brazo_sup:[238,280],iv:[232,400],farmacos:[240,460],pulsos:[560,462],spo2:[553,545],io:[452,740],trauma:[318,840]};
+ convulsiones:[404,62],brazo_sup:[238,280],reg_cabeza:[400,85],reg_cuello:[400,188],reg_torax:[400,290],reg_brazo_d:[240,360],reg_brazo_i:[560,360],reg_abdomen:[400,428],reg_pelvis:[400,500],reg_pierna_d:[345,690],reg_pierna_i:[455,810],iv:[232,400],farmacos:[240,460],pulsos:[560,462],spo2:[553,545],io:[452,740],trauma:[318,840]};
 
 const stage=document.getElementById('stage'), canvas=document.getElementById('gl'), svgEl=document.getElementById('body-svg');
 try{
