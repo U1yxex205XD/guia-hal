@@ -794,26 +794,39 @@ try{
   const SNAP=SNAPS.map(([x,y])=>stud(x,y,4.2*u,gold));
   stud(470,322,9.5*u,tan,1);   // sitio redondo del costado izquierdo
   stud(452,385,5.5*u,steel,2.2); // broche metálico del abdomen
-  // globos oculares de Meshy metidos detrás de la cara: se ven solo a través de una abertura en forma de almendra
-  // (máscara de stencil sobre la piel), así parecen hundidos en la cuenca; la abertura se cierra para parpadear
-  const almondShape=mir=>{const sh=new THREE.Shape(),X=x=>(x-.5)*eyeW*mir,Y=y=>(.5-y)*eyeH;
-    sh.moveTo(X(.03),Y(.6));sh.bezierCurveTo(X(.28),Y(0),X(.72),Y(.02),X(.97),Y(.48));sh.bezierCurveTo(X(.7),Y(.98),X(.3),Y(1),X(.03),Y(.6));return sh;};
-  const upperCurve=mir=>new THREE.CubicBezierCurve3(...[[.03,.6],[.28,0],[.72,.02],[.97,.48]].map(([x,y])=>new THREE.Vector3((x-.5)*eyeW*mir,(.5-y)*eyeH,0)));
-  const eyeReady=(async()=>{await new Promise(r=>setTimeout(r,0));const P=await loadProp('eye');if(!P)return;const D=26*u,R=D/2;
-    EYES.forEach((e,i)=>{const ref=i+1,mir=e.g.scale.x,s=e.g.position,surf=s.z-1.2*u;
-      const st={stencilWrite:true,stencilRef:ref,stencilFunc:THREE.EqualStencilFunc,stencilFail:THREE.KeepStencilOp,stencilZFail:THREE.KeepStencilOp,stencilZPass:THREE.KeepStencilOp};
-      const lidG=new THREE.Group();lidG.position.set(s.x,s.y-eyeH*.1,surf+.5*u);det.add(lidG);
-      const lidIn=new THREE.Group();lidIn.position.y=eyeH*.1;lidG.add(lidIn);
-      const mask=new THREE.Mesh(new THREE.ShapeGeometry(almondShape(mir),24),new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-8,
-        stencilWrite:true,stencilRef:ref,stencilFunc:THREE.AlwaysStencilFunc,stencilZPass:THREE.ReplaceStencilOp}));mask.renderOrder=10;lidIn.add(mask);
-      const edge=new THREE.Mesh(new THREE.TubeGeometry(upperCurve(mir),24,.35*u,6),new THREE.MeshStandardMaterial({color:0x6b4434,roughness:.8}));lidIn.add(edge);
-      const g=new THREE.Group();g.position.set(s.x,s.y,surf-1.2*u-R);det.add(g);
-      const c=P.clone(true);c.children[0].rotation.set(0,0,0);c.scale.setScalar(D/P.userData.max);g.add(c);
-      c.traverse(m=>{if(m.isMesh){m.material=m.material.clone();Object.assign(m.material,st,{depthTest:false,side:THREE.FrontSide});m.renderOrder=11;}});
-      const pu=new THREE.Mesh(new THREE.CircleGeometry(1,28),new THREE.MeshBasicMaterial({color:0x050505,depthTest:false,...st}));pu.renderOrder=12;
-      pu.position.z=R*1.01;g.add(pu);e.pup=pu;e.pr=D*.075;pu.scale.setScalar(e.pr);e.lid=lidG;});dirty=true;})();
-  const tickDetails=t=>{const ph=t%4.6,b=ph<.18?Math.sin(ph/.18*Math.PI):0;
-    EYES.forEach(e=>{e.r+=(e.target-e.r)*.07;if(e.pup)e.pup.scale.setScalar(e.pr*e.r);if(e.lid){e.lid.scale.y=Math.max(.02,1-b);if(b)dirty=true;}});};
+  // ojos incrustados: se abre una cuenca en forma de almendra en la malla de la cara (los fragmentos dentro se descartan),
+  // detrás va el globo ocular de Meshy dentro de una cavidad, con párpados de piel que bajan para parpadear
+  const skinM=new THREE.MeshStandardMaterial({color:0xcf9b7b,roughness:.75});
+  const EA=9.6*u,EH1=5*u,EH2=3.6*u,ER=11*u;
+  // misma almendra para las dos cosas: la cara se descarta DENTRO de ella y las piezas del ojo FUERA de ella
+  const EU={uE0:{value:new THREE.Vector3(0,0,-1e9)},uE1:{value:new THREE.Vector3(0,0,-1e9)},uEA:{value:EA},uEH1:{value:EH1},uEH2:{value:EH2},uEDZ:{value:7*u},uW2P:{value:new THREE.Matrix4()}};
+  EYES.forEach((e,i)=>{const p=e.g.position;EU['uE'+i].value.set(p.x,p.y,p.z-1.2*u);});
+  const almondClip=(m,inside,k=1)=>{m.onBeforeCompile=sh=>{Object.assign(sh.uniforms,EU);
+      sh.vertexShader='uniform mat4 uW2P;\nvarying vec3 vPP;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvPP=(uW2P*modelMatrix*vec4(transformed,1.)).xyz;');
+      sh.fragmentShader=`uniform vec3 uE0,uE1;uniform float uEA,uEH1,uEH2,uEDZ;varying vec3 vPP;
+bool inEye(vec3 c,float k,bool chkZ){vec2 d=vPP.xy-c.xy;float A=uEA*k,H1=uEH1*k,H2=uEH2*k;if((chkZ&&vPP.z<c.z-uEDZ)||abs(d.x)>A)return false;
+ float c1=(H1*H1-A*A)/(2.*H1),c2=(H2*H2-A*A)/(2.*H2);
+ return length(d-vec2(0.,c1))<H1-c1&&length(d+vec2(0.,c2))<H2-c2;}
+`+sh.fragmentShader.replace('void main() {',inside?'void main() {\nif(inEye(uE0,1.,true)||inEye(uE1,1.,true))discard;':
+        `void main() {\nif(!inEye(uE0,${k.toFixed(3)},false)&&!inEye(uE1,${k.toFixed(3)},false))discard;`);};m.customProgramCacheKey=()=>'almond'+inside+k;m.needsUpdate=true;};
+  model.traverse(o=>{if(!o.isMesh||!o.material)return;o.material=o.material.clone();o.material.side=THREE.DoubleSide;almondClip(o.material,true);});
+  const eyeReady=(async()=>{await new Promise(r=>setTimeout(r,0));const P=await loadProp('eye');
+    EYES.forEach(e=>{const p=e.g.position,surf=p.z-1.2*u;const g=new THREE.Group();g.position.set(p.x,p.y,surf-.9*u-ER);det.add(g);
+      // cavidad oscura detrás del ojo
+      const cup=new THREE.Mesh(new THREE.SphereGeometry(ER*1.22,32,16),new THREE.MeshStandardMaterial({color:0x7a4038,roughness:.9,side:THREE.BackSide}));g.add(cup);
+      if(P){const c=P.clone(true);c.children[0].rotation.set(0,0,0);c.scale.setScalar(2*ER/P.userData.max);g.add(c);}
+      else g.add(new THREE.Mesh(new THREE.SphereGeometry(ER,32,16),new THREE.MeshStandardMaterial({color:0xf4f1ec,roughness:.3})));
+      const pu=new THREE.Mesh(new THREE.CircleGeometry(1,28),new THREE.MeshBasicMaterial({color:0x050505,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-4}));
+      pu.position.z=ER*1.004;g.add(pu);e.pup=pu;e.pr=ER*.15;pu.scale.setScalar(e.pr);
+      // párpado superior (se mueve) e inferior (fijo): casquetes de piel apenas más grandes que el globo
+      const up=new THREE.Mesh(new THREE.SphereGeometry(ER*1.05,48,24,0,Math.PI*2,0,Math.PI*.5),skinM);g.add(up);e.lid=up;
+      const lo=new THREE.Mesh(new THREE.SphereGeometry(ER*1.045,48,24,0,Math.PI*2,Math.PI*.5,Math.PI*.5),skinM);lo.rotation.x=.27;g.add(lo);
+      const lash=new THREE.Mesh(new THREE.TorusGeometry(ER*1.05,.35*u,6,48,Math.PI),new THREE.MeshStandardMaterial({color:0x3a261d,roughness:.8}));
+      lash.rotation.x=Math.PI/2;up.add(lash);
+      e.lidOpen=-.36;e.lidClosed=.3;up.rotation.x=e.lidOpen;
+      g.traverse(o=>{if(o.isMesh){o.material=o.material.clone();almondClip(o.material,false,1.02);}});});dirty=true;})();
+  const tickDetails=t=>{EU.uW2P.value.copy(pivot.matrixWorld).invert();const ph=t%4.6,b=ph<.18?Math.sin(ph/.18*Math.PI):0;
+    EYES.forEach(e=>{e.r+=(e.target-e.r)*.07;if(e.pup)e.pup.scale.setScalar(e.pr*e.r);if(e.lid){e.lid.rotation.x=e.lidOpen+(e.lidClosed-e.lidOpen)*b;if(b)dirty=true;}});};
 
   pivot.rotation.x=-Math.PI/2;pivot.updateMatrixWorld(true);
   const nm=new THREE.Matrix3().getNormalMatrix(pivot.matrixWorld);
