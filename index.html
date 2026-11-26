@@ -784,7 +784,7 @@ try{
     const pr=IR*.36/EH*eyeH, pup=new THREE.Mesh(new THREE.CircleGeometry(1,32),new THREE.MeshBasicMaterial({color:0x07090c,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-8}));
     pup.position.set((IX/EW-.5)*eyeW,(.5-IY/EH)*eyeH,.02*u);pup.scale.setScalar(pr);pup.renderOrder=3;g.add(pup);
     const lash=new THREE.Mesh(new THREE.PlaneGeometry(eyeW,eyeH*2),flat(lashTex,2));lash.position.z=.04*u;lash.renderOrder=4;g.add(lash);
-    EYES.push({g,pup,pr,r:1,target:1});});
+    g.visible=false;EYES.push({g,pup,pr,r:1,target:1});}); // los ojos dibujados solo se ven con la ficha Ojos y pupilas
   // broches dorados del pecho y del costado (medidos sobre los relieves del modelo y el video)
   const SNAPS=[[380,251],[421,250],[434,272],[458,283],[482,281],[498,267],[509,249],[340,300]];
   const gold=new THREE.MeshStandardMaterial({color:0xe2bf6e,metalness:.35,roughness:.35,emissive:0x3a2a08}),
@@ -1086,7 +1086,7 @@ try{
     const t=THREE.MathUtils.degToRad(camera.fov/2),d=r/Math.sin(t)/Math.min(1,camera.aspect)*1.05;
     const dir=camera.position.clone().sub(controls.target).normalize();if(dir.y<.45){dir.y=.45;dir.normalize();}
     flyTo(c.clone().addScaledVector(dir,d),c);};
-  window.onSelect3D=async f=>{const tok=++animToken;clearFx();
+  window.onSelect3D=async f=>{const tok=++animToken;clearFx();EYES.forEach(e=>e.g.visible=!!(f&&f.id==='ojos'&&mode==='explorar'));dirty=true;
     if(!f||f.sinModelo||!ANIM[f.id]||mode==='examen'){if(!f||mode==='examen'){const sp=camera.position.clone(),st=controls.target.clone();home();const hp=camera.position.clone(),ht=controls.target.clone();camera.position.copy(sp);controls.target.copy(st);flyTo(hp,ht);}return;}
     const cfg=ANIM[f.id],a=A(f.id);
     const dir=(cfg.dir||a.n).clone().add(new THREE.Vector3(0,.9,.35)).normalize();
