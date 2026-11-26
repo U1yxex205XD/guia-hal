@@ -186,7 +186,7 @@ const FEAT=[
   pasos:[[V,'Haz preguntas al paciente como en una entrevista real: dolor, alergias, antecedentes.'],[V,'Escucha la respuesta desde la cabeza del maniquí, no desde la computadora.']],
   software:[[V,'Pestaña Habla: audio en vivo (streaming), activación por voz con umbral y ganancia de salida.'],[V,'Frases pregrabadas en inglés o español, agrupadas en Queja, Confusión, Descripción, Efecto, Evasión, Historia, Ubicación, Números, Ocurrencia y Respuesta.'],[V,'Grabadora de voz: el instructor graba frases propias y les pone nombre.']],
   tip:'Graba antes del curso las 5 o 6 frases clave de tu caso (por ejemplo “me duele el pecho”). Así no improvisas a mitad de la simulación.'},
- {id:'convulsiones',tema:T1,nombre:'Convulsiones',x:96,y:330,zona:'brazo',lado:'L',
+ {id:'convulsiones',tema:T1,nombre:'Convulsiones',x:262,y:44,zona:'cabeza',lado:'R',
   resumen:'Los brazos de HAL se mueven para simular una crisis convulsiva. La intensidad se elige desde el software.',
   pasos:[[V,'Observa el movimiento de los brazos y cuánto dura.'],[C,'Protege la cabeza, retira objetos cercanos, no metas nada en la boca y cronometra la crisis.']],
   software:[[V,'Panel Cefálico → Convulsiones: ninguna, leve o severa.']],
@@ -375,10 +375,10 @@ const regOf=f=>f.zona==='mano'?'brazo':f.zona;
 const visible=f=>mode==='examen'||(region&&regOf(f)===region)||(filtro&&f.tema===filtro)||(current&&current.id===f.id&&mode==='explorar');
 function regionTag(){const n=FEAT.filter(f=>!f.sinModelo&&visible(f)).length;
   const pts=n===1?'1 punto':n+' puntos';if(region)return `${RNAME[region]} · ${pts}`;if(filtro)return `${filtro} · ${pts}`;return current?current.nombre:'Toca una región del cuerpo';}
-function setRegion(r){region=r;if(r)filtro=null;if(mode!=='explorar'&&mode!=='examen')setMode('explorar');renderLegend();drawPoints();tag.textContent=regionTag();}
+function setRegion(r){region=r;if(r)filtro=null;if(window.onRegion3D)onRegion3D(r?FEAT.filter(f=>!f.sinModelo&&regOf(f)===r).map(f=>f.id):null);if(mode!=='explorar'&&mode!=='examen')setMode('explorar');renderLegend();drawPoints();tag.textContent=regionTag();}
 // Toque sobre el cuerpo (3D o dibujo): la región es la del punto más cercano al toque.
 window.onBodyTap=(sx,sy,onBody,reg)=>{if(mode==='examen')return;
-  if(!onBody){if(region||filtro){region=null;filtro=null;renderLegend();drawPoints();tag.textContent=regionTag();}return;}
+  if(!onBody){if(region||filtro){if(region&&window.onRegion3D)onRegion3D(null);region=null;filtro=null;renderLegend();drawPoints();tag.textContent=regionTag();}return;}
   if(reg){setRegion(region===reg?null:reg);return;}
   let best=null,bd=1e9;for(const f of FEAT){if(f.sinModelo)continue;const p=pos(f);if(!p.vis)continue;const d=(p.x-sx)**2+(p.y-sy)**2;if(d<bd){bd=d;best=f;}}
   if(best)setRegion(region===regOf(best)?null:regOf(best));};
@@ -507,7 +507,7 @@ function select(f){current=f;card.innerHTML=featCard(f);card.scrollTop=0;if(f)ad
 function renderLegend(){
   $('legendbar').innerHTML=ORDER.filter(t=>t!==T7).map(t=>`<button data-t="${t}" title="${t}" aria-pressed="${filtro===t}"><span class="dot" style="background:${TCOL[t]}"></span>${TSHORT[t]}</button>`).join('');
   $('legendbar').hidden=view!=='man';}
-$('legendbar').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;filtro=filtro===b.dataset.t?null:b.dataset.t;if(filtro)region=null;renderLegend();drawPoints();tag.textContent=regionTag();});
+$('legendbar').addEventListener('click',e=>{const b=e.target.closest('[data-t]');if(!b)return;filtro=filtro===b.dataset.t?null:b.dataset.t;if(filtro)region=null;if(window.onRegion3D)onRegion3D(filtro?FEAT.filter(f=>!f.sinModelo&&f.tema===filtro).map(f=>f.id):null);renderLegend();drawPoints();tag.textContent=regionTag();});
 $('t-lbl').onchange=drawPoints;
 
 // ---------- vista
@@ -662,7 +662,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 const ANCHOR={ojos:[381,106],bvm:[400,135],intubacion:[400,147],cianosis:[388,148],co2:[414,148],voz:[364,100],
  estridor:[384,185],traqueo:[400,192],ventilador:[426,205],im:[252,190],torax:[335,235],pulmones:[300,300],
  ecg:[458,240],corazon:[440,285],desfib:[490,300],rcp:[400,290],intestino:[415,385],sonda:[395,540],
- convulsiones:[238,280],iv:[232,400],farmacos:[240,460],pulsos:[560,462],spo2:[553,545],io:[452,740],trauma:[318,840]};
+ convulsiones:[404,62],brazo_sup:[238,280],iv:[232,400],farmacos:[240,460],pulsos:[560,462],spo2:[553,545],io:[452,740],trauma:[318,840]};
 
 const stage=document.getElementById('stage'), canvas=document.getElementById('gl'), svgEl=document.getElementById('body-svg');
 try{
@@ -785,9 +785,31 @@ try{
   pivot.rotation.x=-Math.PI/2;pivot.updateMatrixWorld(true);
   const nm=new THREE.Matrix3().getNormalMatrix(pivot.matrixWorld);
   for(const a of Object.values(anchors)){a.p.applyMatrix4(pivot.matrixWorld);a.n.applyMatrix3(nm).normalize();}
-  // cama: colchón verde claro debajo del maniquí
-  const bed=new THREE.Mesh(new THREE.BoxGeometry(size.x*1.9,0.12,H*1.12),new THREE.MeshStandardMaterial({color:0xb9c7b0,roughness:.95}));
-  bed.position.set(0,-size.z/2-0.06-0.005,0);scene.add(bed);
+  // camilla de hospital: colchón de vinilo, marco y barandales de acero, patas con ruedas
+  const bed=new THREE.Group();scene.add(bed);
+  {const BW=Math.max(size.x*1.05,H*.36),BL=H*1.14,top=-size.z/2-0.005,MT=0.09;
+   const vinyl=new THREE.MeshStandardMaterial({color:0x4f7f9a,roughness:.55}),sheet=new THREE.MeshStandardMaterial({color:0xeef3f1,roughness:.9}),
+     steel=new THREE.MeshStandardMaterial({color:0xc7ccd0,metalness:.85,roughness:.32}),dark=new THREE.MeshStandardMaterial({color:0x2b2f33,roughness:.7});
+   const box=(w,h,l,m,x,y,z)=>{const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,l),m);o.position.set(x,y,z);bed.add(o);return o;};
+   const tube=(a,b,r,m=steel)=>{const d=b.clone().sub(a),o=new THREE.Mesh(new THREE.CylinderGeometry(r,r,d.length(),12),m);
+     o.position.copy(a).addScaledVector(d,.5);o.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.normalize());bed.add(o);return o;};
+   const V=(x,y,z)=>new THREE.Vector3(x,y,z);
+   box(BW,MT,BL,vinyl,0,top-MT/2,0);                       // colchón
+   box(BW*1.002,MT*.35,BL*.62,sheet,0,top-MT*.18,BL*.17);   // sábana bajo piernas y tronco
+   const fy=top-MT-0.02;                                    // marco
+   box(BW*1.04,0.035,BL*1.02,steel,0,fy,0);
+   const ry=top+0.07,rx=BW/2+0.03;                          // barandales laterales (bajados a media altura)
+   [-1,1].forEach(sd=>{tube(V(sd*rx,ry,-BL*.36),V(sd*rx,ry,BL*.1),.012);
+     [-BL*.36,-BL*.13,BL*.1].forEach(z=>tube(V(sd*rx,fy,z),V(sd*rx,ry,z),.009));});
+   const hy=top+0.22;                                       // cabecera y piecera
+   [[-BL/2-0.02,hy],[BL/2+0.02,top+0.12]].forEach(([z,y])=>{tube(V(-BW/2,fy,z),V(-BW/2,y,z),.014);tube(V(BW/2,fy,z),V(BW/2,y,z),.014);
+     tube(V(-BW/2,y,z),V(BW/2,y,z),.014);box(BW*.92,(y-fy)*.6,0.012,dark,0,fy+(y-fy)*.45,z);});
+   const floor=fy-H*.42;                                    // patas, travesaño y ruedas
+   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sz])=>{const x=sx*BW*.4,z=sz*BL*.42;tube(V(x,fy,z),V(x,floor+0.06,z),.016);
+     const w=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.03,18),dark);w.rotation.z=Math.PI/2;w.position.set(x,floor+0.04,z);bed.add(w);});
+   tube(V(-BW*.4,floor+0.12,0),V(BW*.4,floor+0.12,0),.012);
+   box(BW*.84,0.012,BL*.8,steel,0,floor+0.14,0);             // repisa baja
+  }
 
   let W=1,Hs=1;
   // Vista inicial: desde los pies de la cama y un poco arriba, como en los videos.
@@ -927,7 +949,7 @@ try{
       m.position.set(h[1]?h[1].p.x:h[0].p.x,h[0].p.y,Math.max(...h.map(a=>a.p.z))+.6*u);m.renderOrder=3;fxL.add(m);
       return t=>{m.material.opacity=.75*(.5-.5*Math.cos(t*1.1));};}},
     voz:{dir:new THREE.Vector3(0,1,0),z:.4,cap:'La voz sale por la boca de HAL: el instructor habla en vivo o usa frases grabadas.',make:()=>mkRings('intubacion',0xffffff,1.1,3,.09)},
-    convulsiones:{z:1.1,cap:'Los brazos se sacuden con intensidad leve o severa.',make:()=>{const r0=pivot.rotation.clone(),p0=pivot.position.clone();
+    convulsiones:{z:1.7,cap:'Los brazos se sacuden con intensidad leve o severa.',make:()=>{const r0=pivot.rotation.clone(),p0=pivot.position.clone();
       return t=>{const on=(t%5)<3.2;pivot.position.copy(p0);pivot.rotation.copy(r0);if(on){pivot.position.x+=Math.sin(t*55)*.004;pivot.rotation.z+=Math.sin(t*47)*.006;}};},stop:()=>{pivot.position.set(0,0,0);pivot.rotation.set(-Math.PI/2,0,0);}},
     intubacion:{dir:new THREE.Vector3(-1,.4,0),z:.65,cap:'El tubo entra por la boca hacia la tráquea; los sensores detectan si quedó en tráquea, esófago o bronquio derecho.',make:()=>{
       // tubo endotraqueal: sale de la boca hacia arriba y hacia la cabecera, con conector de 15 mm y balón piloto
@@ -994,17 +1016,8 @@ try{
     desfib:{z:.8,cap:'Descarga real del desfibrilador: el software detecta la energía y cambia el ritmo.',make:async()=>{const g1=await mkProp('paddles','desfib',{size:.2,off:.0,tilt:.5});const flash=new THREE.Mesh(sph,mat(0xffffff,0));flash.position.copy(chest());flash.scale.setScalar(.25);fx.add(flash);
       return t=>{const x=t%3.5;flash.material.opacity=x<.12?.8*(1-x/.12):0;pivot.position.y=x<.15?.01*Math.sin(x*80):0;};},stop:()=>pivot.position.set(0,0,0)},
     rcp:{z:.9,cap:'Compresiones de 100 a 120 por minuto; el sensor mide frecuencia, profundidad y retroceso.',make:()=>{
-      // manos entrelazadas con guantes azules y brazos rectos desde el lado derecho del paciente
+      // solo el punto de compresión: anillos que laten al ritmo de 110 por minuto
       const h=hitF(400,290);if(!h)return null;const g=new THREE.Group();g.position.copy(h.p);fxL.add(g);
-      const glove=new THREE.MeshStandardMaterial({color:0x4d8fe0,roughness:.5}),skin=new THREE.MeshStandardMaterial({color:0xd7a582,roughness:.6}),
-        sleeve=new THREE.MeshStandardMaterial({color:0x6f9fd8,roughness:.85});
-      const p1=new THREE.Mesh(sph,glove);p1.scale.set(19*u,25*u,7*u);p1.position.z=6*u;g.add(p1);
-      const p2=new THREE.Mesh(sph,glove);p2.scale.set(18*u,24*u,7*u);p2.rotation.z=.6;p2.position.z=13*u;g.add(p2);
-      for(let i=0;i<4;i++){const f=new THREE.Mesh(new THREE.CapsuleGeometry(3*u,16*u,4,8),glove);f.rotation.z=Math.PI/2+.6;f.position.set(-6*u+i*4*u,10*u-i*7*u,16*u);g.add(f);}
-      const ad=new THREE.Vector3(-.55,.05,.83).normalize();
-      [-11,11].forEach(o=>{const st=new THREE.Vector3(o*u,-8*u,14*u);
-        const fa=new THREE.Mesh(new THREE.CylinderGeometry(7*u,8*u,160*u,16),skin);fa.position.copy(st).addScaledVector(ad,85*u);fa.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),ad);g.add(fa);
-        const sl=new THREE.Mesh(new THREE.CylinderGeometry(10*u,10*u,140*u,16),sleeve);sl.position.copy(st).addScaledVector(ad,235*u);sl.quaternion.copy(fa.quaternion);g.add(sl);});
       const r=mkRings('rcp',0xff9f43,60/110,2,.12),b0=g.position.clone(),per=60/110;
       return t=>{const x=(t%per)/per,k=x<.45?Math.sin(x/.45*Math.PI/2):Math.cos((x-.45)/.55*Math.PI/2);g.position.copy(b0).addScaledVector(h.n,-18*u*k);r(t);};}},
     pulsos:{z:1.25,cap:'Pulsos palpables sincronizados con el ECG; la PA se mide con un brazalete real en el brazo.',make:()=>{
@@ -1028,7 +1041,7 @@ try{
       const cb=new THREE.CatmullRomCurve3([V3(0,-14*u,-4*u),V3(0,-40*u,-6*u),V3(10*u,-90*u,4*u),V3(30*u,-150*u,10*u)]);g.add(new THREE.Mesh(new THREE.TubeGeometry(cb,30,1.5*u,8),rubber));
       return t=>{const k=beat(t);led.material.opacity=.3+.6*k;led.scale.setScalar(5*u*(.8+.4*k));};}},
     iv:{z:.6,cap:'La vena del antebrazo se canaliza a unos 20 grados y el líquido fluye por la línea.',make:()=>{const h=hitF(...ANCHOR.iv);if(!h)return null;const an=.35,bd=h.n.clone().multiplyScalar(Math.sin(an)).add(V3(0,-Math.cos(an),0));
-      const g=syringe(h.p,bd,{liquid:0xb8e2ff});const a=A('iv');const p=mkParticles(a.p,A('convulsiones').p.clone().sub(a.p),0x58c7ff,{speed:.12,life:1.4});return t=>{inject(g,t,14*u,3,false);p(t);};}},
+      const g=syringe(h.p,bd,{liquid:0xb8e2ff});const a=A('iv');const p=mkParticles(a.p,A('brazo_sup').p.clone().sub(a.p),0x58c7ff,{speed:.12,life:1.4});return t=>{inject(g,t,14*u,3,false);p(t);};}},
     farmacos:{z:.6,cap:'La etiqueta de la jeringa identifica el fármaco y la dosis al inyectar.',make:()=>{const h=hitF(...ANCHOR.farmacos);if(!h)return null;const an=.5,bd=h.n.clone().multiplyScalar(Math.sin(an)).add(V3(0,-Math.cos(an),0));
       const g=syringe(h.p,bd,{label:0x36b3a8,liquid:0xffffff});const r=mkRings('farmacos',0x36b3a8,1,3,.08);return t=>{inject(g,t,8*u,3.4);r(t);};}},
     io:{z:.6,cap:'El taladro IO entra en la tibia para infundir en la médula ósea.',make:async()=>{const g=await mkProp('iodrill','io',{size:.13,off:.0,tilt:.6});return t=>{slide(g,t,.02,2.6);if(g)g.rotateY(.3);};}},
@@ -1047,6 +1060,14 @@ try{
   let animFn=null,animStop=null,anim0=0,tween=null,animToken=0;
   const clearFx=()=>{if(animStop)animStop();animStop=null;animFn=null;while(fx.children.length)fx.remove(fx.children[0]);while(fxL.children.length)fxL.remove(fxL.children[0]);caption.hidden=true;};
   const flyTo=(pos,tgt)=>{tween={p0:camera.position.clone(),t0:controls.target.clone(),p1:pos,t1:tgt,s:performance.now()};};
+  // Zoom a una región: centra los puntos de la región y acerca la cámara sin cambiar el ángulo de vista.
+  window.onRegion3D=ids=>{if(!ids||!ids.length){const sp=camera.position.clone(),st=controls.target.clone();home();const hp=camera.position.clone(),ht=controls.target.clone();camera.position.copy(sp);controls.target.copy(st);flyTo(hp,ht);return;}
+    const pts=ids.map(id=>anchors[id]).filter(Boolean).map(a=>a.p);if(!pts.length)return;
+    const c=new THREE.Vector3();pts.forEach(p=>c.add(p));c.divideScalar(pts.length);
+    let r=H*.12;pts.forEach(p=>r=Math.max(r,p.distanceTo(c)+H*.06));
+    const t=THREE.MathUtils.degToRad(camera.fov/2),d=r/Math.sin(t)/Math.min(1,camera.aspect)*1.05;
+    const dir=camera.position.clone().sub(controls.target).normalize();if(dir.y<.45){dir.y=.45;dir.normalize();}
+    flyTo(c.clone().addScaledVector(dir,d),c);};
   window.onSelect3D=async f=>{const tok=++animToken;clearFx();
     if(!f||f.sinModelo||!ANIM[f.id]||mode==='examen'){if(!f||mode==='examen'){const sp=camera.position.clone(),st=controls.target.clone();home();const hp=camera.position.clone(),ht=controls.target.clone();camera.position.copy(sp);controls.target.copy(st);flyTo(hp,ht);}return;}
     const cfg=ANIM[f.id],a=A(f.id);
