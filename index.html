@@ -780,11 +780,8 @@ try{
   const EYES=[];const eyeW=22*u,eyeH=eyeW*EH/EW;
   [[381,106,1],[420,106,-1]].forEach(([px,py,mir])=>{const h=hitF(px,py),c=hitF(px,py-14);if(!h)return;
     const g=new THREE.Group();g.position.set(h.p.x,h.p.y,Math.max(h.p.z,c?c.p.z-3*u:h.p.z)+1.2*u);g.scale.x=mir;det.add(g);
-    const base=new THREE.Mesh(new THREE.PlaneGeometry(eyeW,eyeH),flat(eyeTex,0));base.renderOrder=2;g.add(base);
-    const pr=IR*.36/EH*eyeH, pup=new THREE.Mesh(new THREE.CircleGeometry(1,32),new THREE.MeshBasicMaterial({color:0x07090c,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-8}));
-    pup.position.set((IX/EW-.5)*eyeW,(.5-IY/EH)*eyeH,.02*u);pup.scale.setScalar(pr);pup.renderOrder=3;g.add(pup);
-    const lash=new THREE.Mesh(new THREE.PlaneGeometry(eyeW,eyeH*2),flat(lashTex,2));lash.position.z=.04*u;lash.renderOrder=4;g.add(lash);
-    g.visible=false;EYES.push({g,pup,pr,r:1,target:1});}); // los ojos dibujados solo se ven con la ficha Ojos y pupilas
+    // sin imágenes planas: solo se guarda la posición de cada ojo; el globo ocular 3D se coloca con la ficha Ojos y pupilas
+    EYES.push({g,pup:null,pr:0,r:1,target:1});});
   // broches dorados del pecho y del costado (medidos sobre los relieves del modelo y el video)
   const SNAPS=[[380,251],[421,250],[434,272],[458,283],[482,281],[498,267],[509,249],[340,300]];
   const gold=new THREE.MeshStandardMaterial({color:0xe2bf6e,metalness:.35,roughness:.35,emissive:0x3a2a08}),
@@ -798,7 +795,7 @@ try{
   stud(470,322,9.5*u,tan,1);   // sitio redondo del costado izquierdo
   stud(452,385,5.5*u,steel,2.2); // broche metálico del abdomen
   const tickDetails=t=>{const ph=t%4.6,b=ph<.16?Math.sin(ph/.16*Math.PI):0;
-    EYES.forEach(e=>{e.g.scale.y=1-.92*b;e.r+=(e.target-e.r)*.07;e.pup.scale.setScalar(e.pr*e.r);});};
+    EYES.forEach(e=>{e.r+=(e.target-e.r)*.07;if(e.pup)e.pup.scale.setScalar(e.pr*e.r);});};
 
   pivot.rotation.x=-Math.PI/2;pivot.updateMatrixWorld(true);
   const nm=new THREE.Matrix3().getNormalMatrix(pivot.matrixWorld);
@@ -935,7 +932,7 @@ try{
   const lungs=(fn=breath)=>{const L=A('pulmones'),R=A('ecg');const lg=p=>{const m=new THREE.Mesh(sph,mat(0x58c7ff,.2));m.position.copy(p);fx.add(m);return t=>{const k=fn(t),s=.9+.18*k;m.scale.set(.042*s,.03*s,.062*s);m.material.opacity=.1+.22*k;};};const f1=lg(L.p.clone().addScaledVector(L.n,-.03)),f2=lg(R.p.clone().addScaledVector(R.n,-.03));return t=>{f1(t);f2(t);};};
   const caption=document.getElementById('anim-cap');
   const ANIM={
-    ojos:{z:.3,cap:'La linterna ilumina el ojo: las dos pupilas se contraen (reflejo consensual) y al apagarla se dilatan. HAL también parpadea solo.',make:async()=>{
+    ojos:{z:.3,cap:'La linterna ilumina el ojo: las dos pupilas se contraen (reflejo consensual) y al apagarla se dilatan.',make:async()=>{
       const e=EYES[0];if(!e)return null;const tp=e.g.position.clone();
       // linterna de bolsillo plateada que apunta al ojo derecho, con un haz delgado y tenue
       const met=new THREE.MeshStandardMaterial({color:0xdadfe4,metalness:.55,roughness:.28,emissive:0x262626}),pen=new THREE.Group();
@@ -949,14 +946,17 @@ try{
       const bg=new THREE.ConeGeometry(5.5*u,L,24,1,true);bg.translate(0,-L/2,0);
       const beam=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({color:0xffe9a0,...add,blending:THREE.NormalBlending}));beam.position.copy(tip);beam.quaternion.copy(pen.quaternion);fxL.add(beam);
       const spot=new THREE.Mesh(new THREE.CircleGeometry(7*u,24),new THREE.MeshBasicMaterial({color:0xfff4cc,...add}));spot.position.copy(tp).add(new THREE.Vector3(0,0,.4*u));fxL.add(spot);
-      // ojo ampliado (Meshy) flotando junto a la cara, con la misma pupila
-      const a=A('ojos'),big=await mkProp('eye','ojos',{size:.075,off:.05,face:true,shift:new THREE.Vector3(.16,0,0)});let bigPup=null;
-      if(big){const lk=new THREE.Mesh(new THREE.TorusGeometry(.044,.003,8,48),mat(0x1f7a5a,.9));lk.position.copy(big.position);orient(lk,a.n);fx.add(lk);
-        const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints([a.p.clone().addScaledVector(a.n,.01),big.position.clone().add(new THREE.Vector3(-.044,0,0))]),new THREE.LineBasicMaterial({color:0x1f7a5a}));fx.add(ln);
-        bigPup=new THREE.Mesh(disc,new THREE.MeshBasicMaterial({color:0x050505}));bigPup.position.copy(big.position).addScaledVector(a.n,.036);orient(bigPup,a.n);fx.add(bigPup);
-        const iris=new THREE.Mesh(disc,new THREE.MeshStandardMaterial({color:0x3d6fa8,roughness:.4}));iris.position.copy(big.position).addScaledVector(a.n,.0355);orient(iris,a.n);iris.scale.setScalar(.016);fx.add(iris);}
+      // globo ocular de Meshy dentro de cada cuenca del maniquí, con una pupila que se contrae y se dilata
+      const P=await loadProp('eye');pivot.updateMatrixWorld(true);
+      const front=new THREE.Vector3(0,0,1).transformDirection(pivot.matrixWorld),D=13.5*u;
+      if(P)EYES.forEach(e=>{const w=pivot.localToWorld(e.g.position.clone());
+        const g=new THREE.Group();const c=P.clone(true);c.children[0].rotation.set(0,0,0);c.scale.setScalar(D/P.userData.max);g.add(c);
+        g.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),front);g.position.copy(w).addScaledVector(front,-D*.4);fx.add(g);
+        const pu=new THREE.Mesh(disc,new THREE.MeshBasicMaterial({color:0x050505,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-4}));
+        pu.position.copy(g.position).addScaledVector(front,D*.5+.0004);orient(pu,front);fx.add(pu);e.pup=pu;e.pr=D*.13;pu.scale.setScalar(e.pr);});
+      const bigPup=null;
       return t=>{const on=(t%4)<2;EYES.forEach(x=>x.target=on?.45:1.3);beam.material.opacity=on?.22:0;spot.material.opacity=on?.45:0;bulb.material.color.setHex(on?0xfffbe0:0x8a8a80);
-        if(bigPup)bigPup.scale.setScalar(.0105*EYES[0].r);};},stop:()=>EYES.forEach(x=>x.target=1)},
+        if(bigPup)bigPup.scale.setScalar(.0105*EYES[0].r);};},stop:()=>EYES.forEach(x=>{x.target=1;x.pup=null;})},
     cianosis:{z:.34,dir:new THREE.Vector3(0,1,0),cap:'Los labios se ponen azulados según el porcentaje que programa el instructor.',make:()=>{
       // labios con tinte azul-violeta que aparece y se va
       const h=[hitF(386,147),hitF(400,147),hitF(414,147)].filter(Boolean);if(!h.length)return null;
@@ -1086,7 +1086,7 @@ try{
     const t=THREE.MathUtils.degToRad(camera.fov/2),d=r/Math.sin(t)/Math.min(1,camera.aspect)*1.05;
     const dir=camera.position.clone().sub(controls.target).normalize();if(dir.y<.45){dir.y=.45;dir.normalize();}
     flyTo(c.clone().addScaledVector(dir,d),c);};
-  window.onSelect3D=async f=>{const tok=++animToken;clearFx();EYES.forEach(e=>e.g.visible=!!(f&&f.id==='ojos'&&mode==='explorar'));dirty=true;
+  window.onSelect3D=async f=>{const tok=++animToken;clearFx();dirty=true;
     if(!f||f.sinModelo||!ANIM[f.id]||mode==='examen'){if(!f||mode==='examen'){const sp=camera.position.clone(),st=controls.target.clone();home();const hp=camera.position.clone(),ht=controls.target.clone();camera.position.copy(sp);controls.target.copy(st);flyTo(hp,ht);}return;}
     const cfg=ANIM[f.id],a=A(f.id);
     const dir=(cfg.dir||a.n).clone().add(new THREE.Vector3(0,.9,.35)).normalize();
@@ -1111,5 +1111,6 @@ try{
   document.getElementById('reset3d').hidden=true;
   svgEl.setAttribute('viewBox','-150 0 820 720');drawBody();window.DONE=1;}
 </script>
+
 </body>
 </html>
